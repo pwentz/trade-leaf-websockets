@@ -39,51 +39,51 @@ function onMessage(event) {
 
 $(document).ready(function () {
   // when user decides to join...
-    $('#join-form').submit(function () {
-        $('#warnings').html('');
-        var user = $('#user').val();
-        var ws = createChatSocket();
+  $('#join-form').submit(function () {
+      $('#warnings').html('');
+      var user = $('#user').val();
+      var ws = createChatSocket();
 
-        ws.onopen = function() {
-          // when socket opents, send "Hi! I am USER" msg to server
-            ws.send('Hi! I am ' + user);
-        };
+      ws.onopen = function() {
+        // when socket opents, send "Hi! I am USER" msg to server
+          ws.send('Hi! I am ' + user);
+      };
 
-      // listen for new message
-        ws.onmessage = function(event) {
+    // listen for new message
+      ws.onmessage = function(event) {
 
-          // if message starts w/ "Welcome! Users: "
-          //   ie. if message is result of user just joining...
-            if(event.data.match('^Welcome! Users: ')) {
-                /* Calculate the list of initial users */
-                var str = event.data.replace(/^Welcome! Users: /, '');
-                if(str != "") {
-                    users = str.split(", ");
-                    refreshUsers();
-                }
+        // if message starts w/ "Welcome! Users: "
+        //   ie. if message is result of user just joining...
+          if(event.data.match('^Welcome! Users: ')) {
+              /* Calculate the list of initial users */
+              var str = event.data.replace(/^Welcome! Users: /, '');
+              if(str != "") {
+                  users = str.split(", ");
+                  refreshUsers();
+              }
 
-                $('#join-section').hide();
-                $('#chat-section').show();
-                $('#users-section').show();
+              $('#join-section').hide();
+              $('#chat-section').show();
+              $('#users-section').show();
 
-              // when new message comes in now, pass to onMessage
-                ws.onmessage = onMessage;
+            // when new message comes in now, pass to onMessage
+              ws.onmessage = onMessage;
 
-              // event listener to send new message
-                $('#message-form').submit(function () {
-                    var text = $('#text').val();
-                    ws.send(text);
-                    $('#text').val('');
-                    return false;
-                });
-            } else {
-                $('#warnings').append(event.data);
-                ws.close();
-            }
-        };
+            // event listener to send new message
+              $('#message-form').submit(function () {
+                  var text = $('#text').val();
+                  ws.send(text);
+                  $('#text').val('');
+                  return false;
+              });
+          } else {
+              $('#warnings').append(event.data);
+              ws.close();
+          }
+      };
 
-        $('#join').append('Connecting...');
+      $('#join').append('Connecting...');
 
-        return false;
-    });
+      return false;
+  });
 });
