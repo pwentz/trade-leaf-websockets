@@ -23,7 +23,9 @@ dependencies:
 - base >= 4.7 && < 5
 
 library:
-  source-dirs:
+  source-dirs: src
+  dependencies:
+    - split
 
 executables:
   trade-leaf-websockets-exe:
@@ -61,3 +63,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - trade-leaf-websockets
+    - hspec

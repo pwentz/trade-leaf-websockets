@@ -91,7 +91,7 @@ main = do
 application :: MVar ServerState -> WS.ServerApp
 application state pending = do
   -- accept connection (maybe want to check stuff first w/ WS.acceptRequestWith)
-    conn <- WS.acceptRequest pending
+    conn <- WS.acceptRequestWith pending acceptableRequest
     WS.forkPingThread conn 30
   -- listen for data...
     msg <- WS.receiveData conn
@@ -140,4 +140,6 @@ talk conn state (user, _) = forever $ do
     msg <- WS.receiveData conn
     putStrLn "------------- NEW MESSAGE -------------"
     putStrLn (T.unpack msg)
-    if "@" `T.isPrefixOf` msg then readMVar state >>= broadcastTo msg user else readMVar state >>= broadcast (user `mappend` ": " `mappend` msg)
+    if "@" `T.isPrefixOf` msg
+       then readMVar state >>= broadcastTo msg user
+       else readMVar state >>= broadcast (user `mappend` ": " `mappend` msg)
