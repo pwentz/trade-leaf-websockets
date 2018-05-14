@@ -1,16 +1,9 @@
 module MessageParser
   ( parseNewUser
-  , parseNewChat
   , parseMessage
-  , NewChat(..)
   ) where
 
 import qualified Text.Read     as Read
-
-data NewChat =
-  NewChat { chatId :: Int
-          , recipientId :: Int
-          } deriving (Show, Eq)
 
 parseNewUser :: String -> Maybe Int
 parseNewUser txt =
@@ -19,29 +12,14 @@ parseNewUser txt =
       verifyPattern (stripSurrounders " ") >>=
         Read.readMaybe
 
-parseNewChat :: String -> Maybe NewChat
-parseNewChat txt =
-  let parsedTxt :: Maybe [Int]
-      parsedTxt =
-        verifyPattern (stripSurrounders "^") txt >>=
-          verifyPattern (stripSurrounders "{{}}") >>=
-            verifyPattern (stripSurrounders " ") >>=
-              traverse Read.readMaybe . splitOn '-'
-  in case parsedTxt of
-       Just (first:second:[]) ->
-         Just $ NewChat { chatId = first
-                        , recipientId = second
-                        }
-       _                      -> Nothing
-
 parseMessage :: String -> Maybe (Int, String)
 parseMessage text =
   let
-    (tradeChatId : msgs) = splitOn ':' text
-    mbTradeChatId = parseNewUser tradeChatId
+    (recipientId : msgs) = splitOn ':' text
+    mbRecipientId = parseNewUser recipientId
   in
-  case (mbTradeChatId, concat msgs) of
-    (Just chatId, ' ' : msg : rest) -> Just (chatId, msg : rest)
+  case (mbRecipientId, concat msgs) of
+    (Just recId, ' ' : msg : rest) -> Just (recId, msg : rest)
     _                               -> Nothing
 
 verifyPattern :: (String -> String) -> String -> Maybe String

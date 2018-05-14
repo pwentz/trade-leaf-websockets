@@ -9,61 +9,31 @@ import Control.Monad (forM_, forever)
 import Control.Concurrent (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import qualified MessageParser as MP
+import qualified Data.Map as Map
 
 import qualified Network.WebSockets as WS
 
 -- We represent a client by their username and a `WS.Connection`. We will see how we
 -- obtain this `WS.Connection` later on.
 
-type Client = (Text, WS.Connection)
-
-type ServerState = [Client]
+type ServerState = Map.Map Int WS.Connection
 
 newServerState :: ServerState
-newServerState = []
-
-numClients :: ServerState -> Int
-numClients = length
+newServerState = Map.empty
 
 -- Check if a user already exists (based on username):
-
-clientExists :: Client -> ServerState -> Bool
-clientExists client = any ((== fst client) . fst)
-
-findClient :: Text -> ServerState -> Maybe Client
-findClient clientName clients =
-  case filter ((== clientName) . fst) clients of
-    []        -> Nothing
-    (match:_) -> Just match
 
 acceptableRequest :: WS.AcceptRequest
 acceptableRequest =
   WS.AcceptRequest (Just "patrules") []
 
-addClient :: Client -> ServerState -> ServerState
-addClient client clients = client : clients
+addClient :: Int -> WS.Connection -> ServerState -> ServerState
+addClient = Map.insert
 
-removeClient :: Client -> ServerState -> ServerState
-removeClient client = filter ((/= fst client) . fst)
+removeClient :: Int -> ServerState -> ServerState
+removeClient = Map.delete
 
--- Send a message to all clients, and log it on stdout:
-
-broadcast :: Text -> ServerState -> IO ()
-broadcast message clients = do
-    T.putStrLn message
-    forM_ clients $ \(_, conn) -> WS.sendTextData conn message
-
-
-broadcastTo :: Text -> Text -> ServerState -> IO ()
-broadcastTo msg sender clients =
-  let
-    (recipientName, message) = T.break (== ':') (T.drop 1 msg)
-  in
-  case findClient recipientName clients of
-    Nothing ->
-      WS.sendTextData (snd . head . filter ((== sender) . fst) $ clients) (mconcat ["USER ", recipientName, " HAS DISCONNECTED!"])
-    Just (_, conn) ->
-      WS.sendTextData conn (T.drop 2 message)
 
 -- The main function first creates a new state for the server, then spawns the
 -- actual server. For this purpose, we use the simple server provided by
@@ -90,56 +60,39 @@ main = do
 
 application :: MVar ServerState -> WS.ServerApp
 application state pending = do
-  -- accept connection (maybe want to check stuff first w/ WS.acceptRequestWith)
     conn <- WS.acceptRequestWith pending acceptableRequest
     WS.forkPingThread conn 30
-  -- listen for data...
     msg <- WS.receiveData conn
     clients <- readMVar state
-    case msg of
-            -- check if msg has "Hi! I am" prefix...
-        _   | not (prefix `T.isPrefixOf` msg) ->
-                WS.sendTextData conn ("Wrong announcement" :: Text)
-            -- chcek if username is valid
-            | any ($ fst client)
-                [T.null, T.any isPunctuation, T.any isSpace] ->
-                    WS.sendTextData conn ("Name cannot " `mappend`
-                        "contain punctuation or whitespace, and " `mappend`
-                        "cannot be empty" :: Text)
-            -- check if client doesn't already exist
-            | clientExists client clients ->
-                WS.sendTextData conn ("User already exists" :: Text)
-            | otherwise -> flip finally disconnect $ do -- finally calls disconnect function when second arg throws exception
-               modifyMVar_ state $ \s -> do
-                 -- take new client and add them to state
-                   let s' = addClient client s
-                 -- send welcome message w/ new user and rest of users
-                   WS.sendTextData conn $
-                       "Welcome! Users: " `mappend`
-                       T.intercalate ", " (map fst s)
-                 -- send this message to ALL clients
-                   broadcast (fst client `mappend` " joined") s'
-                   return s'
-                -- listen for new messages
-               talk conn state client
-          where
-            prefix     = "Hi! I am "
-            client     = (T.drop (T.length prefix) msg, conn)
-            disconnect = do
-                -- Remove client and return new state
-                s <- modifyMVar state $ \s ->
-                    let s' = removeClient client s in return (s', s')
-                broadcast (fst client `mappend` " disconnected") s
+    case MP.parseNewUser (T.unpack msg) of
+      Nothing ->
+        WS.sendTextData conn ("Invalid format" :: Text)
+      Just newUser ->
+        flip finally disconnect $ do
+           modifyMVar_ state (return . addClient newUser conn )
+           talk conn state newUser
+        where
+          disconnect = do
+              modifyMVar state $ \s ->
+                  let s' = removeClient newUser s
+                  in return (s', s')
+              return ()
 
 -- The talk function continues to read messages from a single client until he
 -- disconnects. All messages are broadcasted to the other clients.
 
-talk :: WS.Connection -> MVar ServerState -> Client -> IO ()
-talk conn state (user, _) = forever $ do
+sendTo :: Text -> WS.Connection -> Int -> ServerState -> IO ()
+sendTo msg conn recipientId state =
+  case Map.lookup recipientId state of
+    Nothing -> WS.sendTextData conn (mconcat [T.pack $ show recipientId, " HAS DISCONNECTED"])
+    Just receivingConn ->
+      WS.sendTextData receivingConn msg
+
+talk :: WS.Connection -> MVar ServerState -> Int -> IO ()
+talk conn state userId = forever $ do
   -- listen for new message
     msg <- WS.receiveData conn
-    putStrLn "------------- NEW MESSAGE -------------"
-    putStrLn (T.unpack msg)
-    if "@" `T.isPrefixOf` msg
-       then readMVar state >>= broadcastTo msg user
-       else readMVar state >>= broadcast (user `mappend` ": " `mappend` msg)
+    case MP.parseMessage (T.unpack msg) of
+      Nothing -> return ()
+      Just (recipientId, message) ->
+        readMVar state >>= sendTo (T.pack message) conn recipientId
