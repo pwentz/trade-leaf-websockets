@@ -66,7 +66,7 @@ application state pending = do
     clients <- readMVar state
     case MP.parseNewUser (T.unpack msg) of
       Nothing ->
-        WS.sendTextData conn ("Invalid format" :: Text)
+        WS.sendTextData conn ("-- Invalid format" :: Text)
       Just newUser ->
         flip finally disconnect $ do
            modifyMVar_ state (return . addClient newUser conn )
@@ -84,7 +84,7 @@ application state pending = do
 sendTo :: Text -> WS.Connection -> Int -> ServerState -> IO ()
 sendTo msg conn recipientId state =
   case Map.lookup recipientId state of
-    Nothing -> WS.sendTextData conn (mconcat [T.pack $ show recipientId, " HAS DISCONNECTED"])
+    Nothing -> WS.sendTextData conn (mconcat ["-- ", T.pack $ show recipientId, " has disconnected"])
     Just receivingConn ->
       WS.sendTextData receivingConn msg
 
