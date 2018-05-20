@@ -30,6 +30,11 @@ addClient = Map.insert
 removeClient :: Int -> ServerState -> ServerState
 removeClient = Map.delete
 
+send :: WS.Connection -> Text -> IO ()
+send conn msg = do
+  putStrLn (T.unpack msg)
+  WS.sendTextData conn msg
+
 main :: IO ()
 main = do
     state <- newMVar newServerState
@@ -43,11 +48,12 @@ application state pending = do
     clients <- readMVar state
     case MP.parseNewUser (T.unpack msg) of
       Nothing ->
-        WS.sendTextData conn ("-- INVALID FORMAT" :: Text)
+        send conn ("-- INVALID FORMAT" :: Text)
       Just newUser -> do
         putStrLn (mconcat ["NEW USER: ", show newUser])
         flip finally disconnect $ do
-           modifyMVar_ state (return . addClient newUser conn )
+           modifyMVar_ state (return . addClient newUser conn)
+           readMVar state >>= (\keys -> putStrLn (mconcat ["STATE: ", show keys])) . Map.keys
            talk conn state newUser
         where
           disconnect = do
@@ -59,14 +65,13 @@ application state pending = do
 sendTo :: Text -> WS.Connection -> Int -> ServerState -> IO ()
 sendTo msg conn recipientId state =
   case Map.lookup recipientId state of
-    Nothing -> WS.sendTextData conn (mconcat ["-- ", T.pack $ show recipientId, ": DISCONNECTED"])
+    Nothing -> send conn (mconcat ["-- ", T.pack $ show recipientId, ": DISCONNECTED"])
     Just receivingConn ->
-      WS.sendTextData receivingConn (mconcat [T.pack $ show recipientId, ": ", msg])
+      send receivingConn (mconcat [T.pack $ show recipientId, ": ", msg])
 
 talk :: WS.Connection -> MVar ServerState -> Int -> IO ()
 talk conn state userId = forever $ do
     msg <- WS.receiveData conn
-    putStrLn (mconcat [show userId, ": ", T.unpack msg])
     case MP.parseMessage (T.unpack msg) of
       Nothing -> return ()
       Just (recipientId, message) ->
